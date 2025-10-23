@@ -1,0 +1,342 @@
+--[[
+	Hide Players Toggle Script
+	Author: ItoRenz00
+	Description: Script to hide other players with a toggle button
+	Place this script in: StarterPlayer > StarterPlayerScripts as LocalScript
+	
+	Features:
+	- Hide/Show other players with a toggle button
+	- Hides character models, GUIs, nametags, and health bars
+	- Mobile and PC support
+	- Preserves original transparency values
+	- Auto-handles new players joining
+--]]
+
+-- Services
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+-- Local Player References
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- State Variables
+local isHidden = false
+local hiddenPlayers = {}
+local hiddenGuis = {}
+local hiddenTextElements = {}
+local originalTransparencies = {}
+
+-- Platform Detection
+local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- UI Configuration
+local UI_CONFIG = {
+	MOBILE_SIZE = UDim2.new(0, 80, 0, 80),
+	PC_SIZE = UDim2.new(0, 60, 0, 60),
+	MOBILE_TEXT_SIZE = 14,
+	PC_TEXT_SIZE = 12,
+	CORNER_RADIUS = 12,
+	COLOR_HIDDEN = Color3.fromRGB(220, 50, 50),
+	COLOR_SHOWN = Color3.fromRGB(50, 50, 50)
+}
+
+-- Create ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "HidePlayersGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = PlayerGui
+
+-- Create Toggle Button
+local toggleButton = Instance.new("TextButton")
+toggleButton.Name = "ToggleButton"
+toggleButton.Size = isMobile and UI_CONFIG.MOBILE_SIZE or UI_CONFIG.PC_SIZE
+toggleButton.Position = UDim2.new(0, 10, 0.5, -40)
+toggleButton.AnchorPoint = Vector2.new(0, 0.5)
+toggleButton.BackgroundColor3 = UI_CONFIG.COLOR_SHOWN
+toggleButton.BorderSizePixel = 0
+toggleButton.Font = Enum.Font.GothamBold
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.TextSize = isMobile and UI_CONFIG.MOBILE_TEXT_SIZE or UI_CONFIG.PC_TEXT_SIZE
+toggleButton.Text = "👁️\nShow"
+toggleButton.Parent = screenGui
+
+-- Add UI Corner
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, UI_CONFIG.CORNER_RADIUS)
+corner.Parent = toggleButton
+
+-- Add UI Stroke for Shadow Effect
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(0, 0, 0)
+stroke.Thickness = 2
+stroke.Transparency = 0.5
+stroke.Parent = toggleButton
+
+--[[
+	Function: hideCharacterGuis
+	Description: Hides all GUI elements on a character
+	Parameters: character - The character model
+--]]
+local function hideCharacterGuis(character)
+	if not character then return end
+	
+	pcall(function()
+		-- Hide BillboardGui and SurfaceGui
+		for _, gui in pairs(character:GetDescendants()) do
+			if gui:IsA("BillboardGui") or gui:IsA("SurfaceGui") then
+				hiddenGuis[gui] = gui.Enabled
+				gui.Enabled = false
+			end
+		end
+		
+		-- Hide text elements in Head
+		local head = character:FindFirstChild("Head")
+		if head then
+			for _, obj in pairs(head:GetDescendants()) do
+				if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+					hiddenTextElements[obj] = obj.Visible
+					obj.Visible = false
+				end
+			end
+		end
+		
+		-- Hide nametag and health bar
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+			humanoid.HealthDisplayDistance = 0
+			humanoid.NameDisplayDistance = 0
+		end
+	end)
+end
+
+--[[
+	Function: showCharacterGuis
+	Description: Shows all GUI elements on a character
+	Parameters: character - The character model
+--]]
+local function showCharacterGuis(character)
+	if not character then return end
+	
+	pcall(function()
+		-- Restore BillboardGui and SurfaceGui
+		for _, gui in pairs(character:GetDescendants()) do
+			if (gui:IsA("BillboardGui") or gui:IsA("SurfaceGui")) and hiddenGuis[gui] ~= nil then
+				gui.Enabled = hiddenGuis[gui]
+				hiddenGuis[gui] = nil
+			end
+		end
+		
+		-- Restore text elements
+		local head = character:FindFirstChild("Head")
+		if head then
+			for _, obj in pairs(head:GetDescendants()) do
+				if (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) and hiddenTextElements[obj] ~= nil then
+					obj.Visible = hiddenTextElements[obj]
+					hiddenTextElements[obj] = nil
+				end
+			end
+		end
+		
+		-- Restore nametag and health bar
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+			humanoid.HealthDisplayDistance = 100
+			humanoid.NameDisplayDistance = 100
+		end
+	end)
+end
+
+--[[
+	Function: hideCharacter
+	Description: Hides a character model and all its components
+	Parameters: character - The character model to hide
+--]]
+local function hideCharacter(character)
+	if not character or hiddenPlayers[character] then return end
+	
+	hiddenPlayers[character] = true
+	
+	-- Hide all parts and save original transparency
+	for _, obj in pairs(character:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			if not originalTransparencies[obj] then
+				originalTransparencies[obj] = obj.Transparency
+			end
+			obj.Transparency = 1
+			obj.CanCollide = false
+			
+		elseif obj:IsA("Decal") or obj:IsA("Texture") then
+			if not originalTransparencies[obj] then
+				originalTransparencies[obj] = obj.Transparency
+			end
+			obj.Transparency = 1
+			
+		elseif obj:IsA("ParticleEmitter") or obj:IsA("Beam") or obj:IsA("Trail") then
+			obj.Enabled = false
+		end
+	end
+	
+	hideCharacterGuis(character)
+end
+
+--[[
+	Function: showCharacter
+	Description: Shows a character model and restores all its components
+	Parameters: character - The character model to show
+--]]
+local function showCharacter(character)
+	if not character or not hiddenPlayers[character] then return end
+	
+	hiddenPlayers[character] = nil
+	
+	-- Restore original transparency
+	for _, obj in pairs(character:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			obj.Transparency = originalTransparencies[obj] or 0
+			if obj.Name ~= "HumanoidRootPart" then
+				obj.CanCollide = true
+			end
+			
+		elseif obj:IsA("Decal") or obj:IsA("Texture") then
+			obj.Transparency = originalTransparencies[obj] or 0
+			
+		elseif obj:IsA("ParticleEmitter") or obj:IsA("Beam") or obj:IsA("Trail") then
+			obj.Enabled = true
+		end
+	end
+	
+	showCharacterGuis(character)
+end
+
+--[[
+	Function: toggleAllPlayers
+	Description: Toggles visibility for all players except local player
+--]]
+local function toggleAllPlayers()
+	for _, player in pairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			if isHidden then
+				hideCharacter(player.Character)
+			else
+				showCharacter(player.Character)
+			end
+		end
+	end
+end
+
+--[[
+	Function: updateButton
+	Description: Updates button appearance based on current state
+--]]
+local function updateButton()
+	if isHidden then
+		toggleButton.Text = "👁️\nHide"
+		toggleButton.BackgroundColor3 = UI_CONFIG.COLOR_HIDDEN
+	else
+		toggleButton.Text = "👁️\nShow"
+		toggleButton.BackgroundColor3 = UI_CONFIG.COLOR_SHOWN
+	end
+end
+
+--[[
+	Function: setupCharacterMonitoring
+	Description: Sets up monitoring for new GUI elements added to character
+	Parameters: character - The character to monitor
+--]]
+local function setupCharacterMonitoring(character)
+	if not character then return end
+	
+	character.DescendantAdded:Connect(function(descendant)
+		if isHidden and hiddenPlayers[character] then
+			task.wait(0.1)
+			pcall(function()
+				if descendant:IsA("BillboardGui") or descendant:IsA("SurfaceGui") then
+					hiddenGuis[descendant] = descendant.Enabled
+					descendant.Enabled = false
+				elseif descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
+					local head = character:FindFirstChild("Head")
+					if head and descendant:IsDescendantOf(head) then
+						hiddenTextElements[descendant] = descendant.Visible
+						descendant.Visible = false
+					end
+				end
+			end)
+		end
+	end)
+end
+
+-- Button Click Handler with Debounce
+local debounce = false
+
+toggleButton.MouseButton1Click:Connect(function()
+	if debounce then return end
+	debounce = true
+	
+	isHidden = not isHidden
+	toggleAllPlayers()
+	updateButton()
+	
+	-- Click animation
+	local originalSize = toggleButton.Size
+	local clickSize = isMobile and UDim2.new(0, 75, 0, 75) or UDim2.new(0, 55, 0, 55)
+	toggleButton.Size = clickSize
+	task.wait(0.1)
+	toggleButton.Size = originalSize
+	
+	debounce = false
+end)
+
+-- Handle New Players Joining
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(character)
+		task.wait(0.5)
+		setupCharacterMonitoring(character)
+		
+		if isHidden and character.Parent then
+			hideCharacter(character)
+		end
+	end)
+end)
+
+-- Handle Existing Players
+for _, player in pairs(Players:GetPlayers()) do
+	if player ~= LocalPlayer then
+		if player.Character then
+			local character = player.Character
+			setupCharacterMonitoring(character)
+			if isHidden then
+				hideCharacter(character)
+			end
+		end
+		
+		player.CharacterAdded:Connect(function(character)
+			task.wait(0.5)
+			setupCharacterMonitoring(character)
+			if isHidden and character.Parent then
+				hideCharacter(character)
+			end
+		end)
+	end
+end
+
+-- Cleanup on Player Removal
+Players.PlayerRemoving:Connect(function(player)
+	if player.Character then
+		hiddenPlayers[player.Character] = nil
+		for _, obj in pairs(player.Character:GetDescendants()) do
+			originalTransparencies[obj] = nil
+			hiddenGuis[obj] = nil
+			hiddenTextElements[obj] = nil
+		end
+	end
+end)
+
+-- Initialization Complete
+print("✓ Hide Players Script Loaded Successfully!")
+print("Author: ItoRenz00")
+print("Platform: " .. (isMobile and "Mobile" or "PC"))
+print("Features: Hide Character + All GUI Elements")
